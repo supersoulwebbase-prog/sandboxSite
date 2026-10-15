@@ -1,0 +1,86 @@
+name: Deploy Static Site to GitHub Pages
+
+on:
+  push:
+    branches:
+      - main     # If your default branch is 'master', change this to master
+  workflow_dispatch:
+
+# Sets permissions of the GITHUB_TOKEN to allow deployment to GitHub Pages
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# Allow one concurrent deployment
+concurrency:
+  group: "pages"
+  cancel-in-progress: false
+
+jobs:
+  build-and-deploy:
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Prepare Static Routes (Simulate Vercel Rewrites)
+        run: |
+          node -e '
+          const fs = require("fs");
+          const path = require("path");
+
+          // 1. Map legal pages to clean URLs
+          if (fs.existsSync("legal/privacy.html")) {
+            fs.mkdirSync("privacy", { recursive: true });
+            fs.copyFileSync("legal/privacy.html", "privacy/index.html");
+            console.log("Created: privacy/index.html");
+          }
+
+          if (fs.existsSync("legal/tos.html")) {
+            fs.mkdirSync("tos", { recursive: true });
+            fs.copyFileSync("legal/tos.html", "tos/index.html");
+            console.log("Created: tos/index.html");
+          }
+
+          // 2. Map all slugs in global.js to holder/holder.html
+          if (fs.existsSync("global.js") && fs.existsSync("holder/holder.html")) {
+            const content = fs.readFileSync("global.js", "utf8");
+            const slugMatches = [...content.matchAll(/slug\s*:\s*["\x27]([^"\x27]+)["\x27]/g)];
+            const holderContent = fs.readFileSync("holder/holder.html", "utf8");
+
+            slugMatches.forEach(match => {
+              const slug = match[1];
+              fs.mkdirSync(slug, { recursive: true });
+              fs.writeFileSync(path.join(slug, "index.html"), holderContent);
+              console.log("Created route for game: /" + slug);
+            });
+          }
+
+          // 3. Create fallback 404 page pointing to holder.html
+          if (fs.existsSync("holder/holder.html")) {
+            fs.copyFileSync("holder/holder.html", "404.html");
+            console.log("Created: 404.html");
+          }
+          '
+
+      - name: Setup Pages
+        uses: actions/configure-pages@v5
+
+      - name: Upload artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          # Upload entire directory
+          path: '.'
+
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
